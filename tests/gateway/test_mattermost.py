@@ -218,6 +218,59 @@ class TestMattermostSend:
         assert payload["root_id"] == "root_post"
 
     @pytest.mark.asyncio
+    async def test_send_uses_metadata_thread_id_without_reply_to(self):
+        """Gateway follow-up sends use metadata.thread_id as Mattermost root_id."""
+        self.adapter._reply_mode = "thread"
+
+        mock_resp = AsyncMock()
+        mock_resp.status = 200
+        mock_resp.json = AsyncMock(return_value={"id": "post_meta"})
+        mock_resp.text = AsyncMock(return_value="")
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+        self.adapter._session.post = MagicMock(return_value=mock_resp)
+        self.adapter._session.get = MagicMock()
+
+        result = await self.adapter.send(
+            "channel_1",
+            "Progress",
+            metadata={"thread_id": "thread_root_from_metadata"},
+        )
+
+        assert result.success is True
+        payload = self.adapter._session.post.call_args[1]["json"]
+        assert payload["root_id"] == "thread_root_from_metadata"
+        self.adapter._session.get.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_send_metadata_thread_id_wins_over_reply_to(self):
+        """Trusted thread metadata should keep sends anchored to the current root."""
+        self.adapter._reply_mode = "thread"
+
+        mock_resp = AsyncMock()
+        mock_resp.status = 200
+        mock_resp.json = AsyncMock(return_value={"id": "post_meta"})
+        mock_resp.text = AsyncMock(return_value="")
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+        self.adapter._session.post = MagicMock(return_value=mock_resp)
+        self.adapter._session.get = MagicMock()
+
+        result = await self.adapter.send(
+            "dm_channel",
+            "Threaded DM reply",
+            reply_to="latest_dm_post",
+            metadata={"thread_id": "dm_thread_root"},
+        )
+
+        assert result.success is True
+        payload = self.adapter._session.post.call_args[1]["json"]
+        assert payload["root_id"] == "dm_thread_root"
+        self.adapter._session.get.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_send_without_thread_no_root_id(self):
         """When reply_mode is 'off', reply_to should NOT set root_id."""
         self.adapter._reply_mode = "off"
